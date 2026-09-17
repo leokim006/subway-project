@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 지하철 길찾기</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <main class="container">
+
+        <header class="header">
+            <div class="logo">🚇</div>
+            <h1>AI 지하철 길찾기</h1>
+            <p>원하는 조건에 맞는 최적의 지하철 경로를 찾아보세요.</p>
+        </header>
+
+        <section class="search-card">
+            <div class="section-title">
+                <span class="section-icon">🔎</span>
+                <div>
+                    <h2>경로 검색</h2>
+                    <p>출발역과 도착역, 원하는 경로 기준을 선택하세요.</p>
+                </div>
+            </div>
+
+            <form action="/route" method="POST" id="route-form">
+
+                <div class="search-grid">
+
+                    <div class="field">
+                        <label for="start">출발역</label>
+                        <select name="start" id="start">
+                            {% for station in stations %}
+                                <option value="{{ station }}"
+                                    {% if station == selected_start %}selected{% endif %}>
+                                    {{ station }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="route-arrow">→</div>
+
+                    <div class="field">
+                        <label for="end">도착역</label>
+                        <select name="end" id="end">
+                            {% for station in stations %}
+                                <option value="{{ station }}"
+                                    {% if station == selected_end %}selected{% endif %}>
+                                    {{ station }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="field criteria-field">
+                        <label for="criteria">경로 기준</label>
+                        <select name="criteria" id="criteria">
+                            <option value="time"
+                                {% if selected_criteria == "time" %}selected{% endif %}>
+                                ⏱️ 가장 빠른 길
+                            </option>
+                            <option value="distance"
+                                {% if selected_criteria == "distance" %}selected{% endif %}>
+                                📏 가장 짧은 길
+                            </option>
+                            <option value="cost"
+                                {% if selected_criteria == "cost" %}selected{% endif %}>
+                                💰 가장 저렴한 길
+                            </option>
+                        </select>
+                    </div>
+
+                </div>
+
+                <button type="submit" id="route-button">
+                    🚇 경로 찾기
+                </button>
+
+            </form>
+        </section>
+
+        <section class="result-section">
+            <div class="section-heading">
+                <span>📍</span>
+                <h2>추천 경로</h2>
+            </div>
+
+            <div id="result">
+
+                {% if route_text %}
+
+                    <div class="route-summary">
+                        <div class="summary-label">추천 경로</div>
+                        <div class="route-text">{{ route_text }}</div>
+                        <div class="criteria-badge">🎯 {{ criteria_text }}</div>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span class="stat-icon">⏱️</span>
+                            <span class="stat-label">총 시간</span>
+                            <strong>{{ "{:,g}".format(total_time) }}초</strong>
+                        </div>
+
+                        <div class="stat-card">
+                            <span class="stat-icon">📏</span>
+                            <span class="stat-label">총 거리</span>
+                            <strong>{{ "{:,g}".format(total_distance) }}m</strong>
+                        </div>
+
+                        <div class="stat-card">
+                            <span class="stat-icon">💰</span>
+                            <span class="stat-label">총 비용</span>
+                            <strong>{{ "{:,g}".format(total_cost) }}원</strong>
+                        </div>
+                    </div>
+
+                    {% if route_segments %}
+
+                        <details class="detail-card">
+                            <summary>🧭 경로 상세 보기</summary>
+
+                            <div class="table-wrap">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>순서</th>
+                                            <th>이동 구간</th>
+                                            <th>시간</th>
+                                            <th>거리</th>
+                                            <th>비용</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for segment in route_segments %}
+                                            <tr>
+                                                <td>{{ segment.order }}</td>
+                                                <td>{{ segment.start }} → {{ segment.end }}</td>
+                                                <td>{{ "{:g}".format(segment.time) }}초</td>
+                                                <td>{{ "{:g}".format(segment.distance) }}m</td>
+                                                <td>{{ "{:g}".format(segment.cost) }}원</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
+
+                        <div class="map-card">
+                            <div class="map-header">
+                                <div>
+                                    <h3>🗺️ 선택 경로 지도</h3>
+                                    <p>추천 경로가 분홍색 선으로 표시됩니다.</p>
+                                </div>
+                            </div>
+
+                            <div class="route-map">
+                                <img src="{{ url_for('static', filename='subway-map.png') }}"
+                                     alt="지하철 노선도">
+                                <svg viewBox="0 0 928 642" aria-label="선택한 경로 강조 표시">
+                                    {% for segment in route_segments %}
+                                        {% if segment.start_position and segment.end_position %}
+                                            <line
+                                                x1="{{ segment.start_position[0] }}"
+                                                y1="{{ segment.start_position[1] }}"
+                                                x2="{{ segment.end_position[0] }}"
+                                                y2="{{ segment.end_position[1] }}"
+                                                stroke="#ff00a8"
+                                                stroke-linecap="round"
+                                                stroke-width="7"
+                                            ></line>
+                                        {% endif %}
+                                    {% endfor %}
+
+                                    {% for segment in route_segments %}
+                                        {% if segment.start_position %}
+                                            <circle
+                                                cx="{{ segment.start_position[0] }}"
+                                                cy="{{ segment.start_position[1] }}"
+                                                fill="#ff00a8"
+                                                r="8"
+                                            ></circle>
+                                        {% endif %}
+
+                                        {% if loop.last and segment.end_position %}
+                                            <circle
+                                                cx="{{ segment.end_position[0] }}"
+                                                cy="{{ segment.end_position[1] }}"
+                                                fill="#ff00a8"
+                                                r="8"
+                                            ></circle>
+                                        {% endif %}
+                                    {% endfor %}
+                                </svg>
+                            </div>
+                        </div>
+
+                    {% endif %}
+
+                    <section class="compare-card">
+                        <div class="section-title">
+                            <span class="section-icon">📊</span>
+                            <div>
+                                <h3>다른 경로와 비교하기</h3>
+                                <p>현재 추천 경로를 다른 기준의 경로와 비교해보세요.</p>
+                            </div>
+                        </div>
+
+                        <form action="/compare" method="POST" id="compare-form">
+
+                            <input type="hidden" name="start" value="{{ selected_start }}">
+                            <input type="hidden" name="end" value="{{ selected_end }}">
+                            <input type="hidden" name="criteria" value="{{ selected_criteria }}">
+
+                            <div class="compare-controls">
+                                <label for="compare_criteria">비교 대상</label>
+
+                                <select name="compare_criteria" id="compare_criteria">
+                                    {% if selected_criteria != "time" %}
+                                        <option value="time"
+                                            {% if selected_compare_criteria == "time" %}selected{% endif %}>
+                                            ⏱️ 가장 빠른 길
+                                        </option>
+                                    {% endif %}
+
+                                    {% if selected_criteria != "distance" %}
+                                        <option value="distance"
+                                            {% if selected_compare_criteria == "distance" %}selected{% endif %}>
+                                            📏 가장 짧은 길
+                                        </option>
+                                    {% endif %}
+
+                                    {% if selected_criteria != "cost" %}
+                                        <option value="cost"
+                                            {% if selected_compare_criteria == "cost" %}selected{% endif %}>
+                                            💰 가장 저렴한 길
+                                        </option>
+                                    {% endif %}
+                                </select>
+
+                                <button type="submit" class="compare-button">
+                                    📊 비교하기
+                                </button>
+                            </div>
+
+                        </form>
+                    </section>
+
+                    {% if compare_text %}
+
+                        <section class="comparison-result">
+
+                            <div class="comparison-header">
+                                <span>📊</span>
+                                <div>
+                                    <h3>비교 결과</h3>
+                                    <p>기준 경로와 비교 경로의 차이를 확인하세요.</p>
+                                </div>
+                            </div>
+
+                            {% if comparison_is_same %}
+
+                                <div class="same-result">
+                                    <span>✓</span>
+                                    <p>두 경로의 결과가 같습니다.</p>
+                                </div>
+
+                            {% else %}
+
+                                <div class="comparison-route">
+                                    <div>
+                                        <span>기준 경로</span>
+                                        <strong>{{ criteria_text }}</strong>
+                                    </div>
+                                    <div class="comparison-arrow">VS</div>
+                                    <div>
+                                        <span>비교 경로</span>
+                                        <strong>{{ compare_text }}</strong>
+                                    </div>
+                                </div>
+
+                                <div class="difference-grid">
+
+                                    <div class="difference-item">
+                                        <span>⏱️ 시간</span>
+                                        <strong>
+                                            {{ "{:,g}".format(total_time) }}초
+                                            <small>→ {{ "{:,g}".format(compare_total_time) }}초</small>
+                                        </strong>
+                                        <em class="{% if time_diff > 0 %}more{% elif time_diff < 0 %}less{% else %}same{% endif %}">
+                                            {{ "%+g"|format(time_diff) }}초
+                                        </em>
+                                    </div>
+
+                                    <div class="difference-item">
+                                        <span>📏 거리</span>
+                                        <strong>
+                                            {{ "{:,g}".format(total_distance) }}m
+                                            <small>→ {{ "{:,g}".format(compare_total_distance) }}m</small>
+                                        </strong>
+                                        <em class="{% if distance_diff > 0 %}more{% elif distance_diff < 0 %}less{% else %}same{% endif %}">
+                                            {{ "%+g"|format(distance_diff) }}m
+                                        </em>
+                                    </div>
+
+                                    <div class="difference-item">
+                                        <span>💰 비용</span>
+                                        <strong>
+                                            {{ "{:,g}".format(total_cost) }}원
+                                            <small>→ {{ "{:,g}".format(compare_total_cost) }}원</small>
+                                        </strong>
+                                        <em class="{% if cost_diff > 0 %}more{% elif cost_diff < 0 %}less{% else %}same{% endif %}">
+                                            {{ "%+g"|format(cost_diff) }}원
+                                        </em>
+                                    </div>
+
+                                </div>
+
+                            {% endif %}
+
+                            <div class="map-card comparison-map">
+                                <div class="map-header">
+                                    <div>
+                                        <h3>🗺️ 추천 경로와 비교 경로</h3>
+                                        <p>
+                                            <span class="legend recommended"></span> 추천 경로
+                                            <span class="legend compared"></span> 비교 경로
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div class="route-map">
+                                    <img src="{{ url_for('static', filename='subway-map.png') }}"
+                                         alt="추천 경로와 비교 경로가 표시된 지하철 노선도">
+
+                                    <svg viewBox="0 0 928 642" aria-label="추천 경로와 비교 경로 강조 표시">
+
+                                        {% for segment in route_segments %}
+                                            {% if segment.start_position and segment.end_position %}
+                                                <line
+                                                    x1="{{ segment.start_position[0] }}"
+                                                    y1="{{ segment.start_position[1] }}"
+                                                    x2="{{ segment.end_position[0] }}"
+                                                    y2="{{ segment.end_position[1] }}"
+                                                    stroke="#ff00a8"
+                                                    stroke-linecap="round"
+                                                    stroke-width="7"
+                                                ></line>
+                                            {% endif %}
+                                        {% endfor %}
+
+                                        {% for segment in compare_route_segments %}
+                                            {% if segment.start_position and segment.end_position %}
+                                                <line
+                                                    x1="{{ segment.start_position[0] }}"
+                                                    y1="{{ segment.start_position[1] }}"
+                                                    x2="{{ segment.end_position[0] }}"
+                                                    y2="{{ segment.end_position[1] }}"
+                                                    stroke="#808080"
+                                                    stroke-linecap="round"
+                                                    stroke-width="3"
+                                                ></line>
+                                            {% endif %}
+                                        {% endfor %}
+
+                                    </svg>
+                                </div>
+                            </div>
+
+                        </section>
+
+                    {% endif %}
+
+                {% else %}
+
+                    <div class="empty-result">
+                        <div class="empty-icon">🚇</div>
+                        <h3>출발역과 도착역을 선택해주세요.</h3>
+                        <p>원하는 경로 기준을 선택한 후 <strong>경로 찾기</strong>를 눌러주세요.</p>
+                    </div>
+
+                {% endif %}
+
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const startSelect = document.getElementById("start");
+        const endSelect = document.getElementById("end");
+        const routeButton = document.getElementById("route-button");
+
+        function updateRouteButton() {
+            const isSameStation = startSelect.value === endSelect.value;
+
+            routeButton.disabled = isSameStation;
+            routeButton.title = isSameStation
+                ? "출발역과 도착역을 다르게 선택해주세요."
+                : "";
+        }
+
+        startSelect.addEventListener("change", updateRouteButton);
+        endSelect.addEventListener("change", updateRouteButton);
+        updateRouteButton();
+
+        document.addEventListener("submit", async (event) => {
+            if (event.target.id !== "compare-form") {
+                return;
+            }
+
+            event.preventDefault();
+
+            const form = event.target;
+            const response = await fetch(form.action, {
+                method: "POST",
+                body: new FormData(form),
+            });
+
+            if (!response.ok) {
+                form.submit();
+                return;
+            }
+
+            const page = await response.text();
+            const updatedDocument = new DOMParser().parseFromString(
+                page,
+                "text/html"
+            );
+
+            document.getElementById("result").innerHTML =
+                updatedDocument.getElementById("result").innerHTML;
+        });
+    </script>
+
+</body>
+</html>
